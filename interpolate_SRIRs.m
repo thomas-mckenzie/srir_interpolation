@@ -58,16 +58,18 @@ numInterpolatedPoints = length(pos_interp);
 
 %% Calculate the cutoff between early refs and late reverb
 % based on when the energy decay curve amplitude is lower than a target
-% in Hikada a similar method uses 1/exp(1) but this was found to be too
-% early.
 
-% target = 1 / exp(1);
-ER_target = 0.1; % empirically chosen value.
+ER_target = 0.1; % empirically chosen value. could be 1 / exp(1);
 earlyRefsCutoff_samp = zeros(1,numMeasurements);
+[B_decay, A_decay] = octdsgn(1000, fs, 3);
 for i = 1:numMeasurements
-    decay = rir2decay(srirs_input(:,1,i), fs, 1000, 1, 1, 1);
-    ind_at_t_L = find(decay<ER_target,1);
+    % filter and schroeder integration to get EDC. W channel, 1kHz freq band
+    srir_input_filt = filter(B_decay,A_decay,srirs_input(:,1,i));
+    int_sch = 1/length(srir_input_filt) * cumtrapz(flip(srir_input_filt/max(abs(srir_input_filt))).^2);
+    edc = flip(int_sch(2:end));
+    edc = edc/max(edc);
     
+    ind_at_t_L = find(edc<ER_target,1);
     earlyRefsCutoff_samp(i) = ceil(ind_at_t_L/1000) * 1000; % nearest 1000 (empirically chosen)
 end
 
@@ -120,11 +122,8 @@ hAllDirectSound(1:length(winDS),:,:) = srirs_input(1:length(winDS),1:numAmbiChan
 secDirs = rad2deg(secDirs);
 numSecs = size(secDirs, 1);
 
-% % Get beam weights. Cardioid, supercardioid or Max rE
-% w_n = beamWeightsCardioid2Spherical(NshInterp);
-% w_n = beamWeightsSupercardioid2Spherical(NshInterp);
-% w_nm_re = getMaxREchannelweights(NshInterp); w_n = [w_nm_re(1); w_nm_re(2); w_nm_re(5); w_nm_re(10); w_nm_re(17)]; % use max re n weights
-w_n = beamWeightsMaxEV(N_interp); % or use the max re weights function from spherical array processing toolbox (different normalisation)
+% Get beam weights. Using max energy vector weights from spherical array processing toolbox
+w_n = beamWeightsMaxEV(N_interp);  
 
 w_nm = zeros(size(srirs_input, 2),size(secDirs,1));
 for i = 1:length(secDirs(:,1))
@@ -144,6 +143,10 @@ for iInterp = 1:numInterpolatedPoints
     [sortedDistances, idxSorted] = sort(vecnorm(pos_input - pos_interp(iInterp, :), 2, 2));
     idxNearest = idxSorted(1); % index of closest measurement
     
+    gains = 1 ./ (sortedDistances(1:2^mode_dimension)+eps);
+    gains = gains / sum(abs(gains));
+    gainsSH(1,1,:) = gains; % for the SH channel gains (ER and LR)
+    
     % get start and end samples and lengths of windows for RIR portioning
     earlyRefsStart_samp = length_sampDS-fade_sampDS2ER+1;
     earlyRefsEnd_samp = earlyRefsCutoff_samp(idxNearest)+fade_sampER2LR+earlyRefsStart_samp-1;
@@ -161,17 +164,13 @@ for iInterp = 1:numInterpolatedPoints
     
     %% interpolate direct sound
     % DoA interp for direct sound interpolation
-    [azi1, ele1, r] = cart2sph(directSoundDirections(idxNearest,1), ...
+    [azi1,ele1,~] = cart2sph(directSoundDirections(idxNearest,1), ...
         directSoundDirections(idxNearest,2), ...
         directSoundDirections(idxNearest,3));
-    [azi2, ele2, ~] = cart2sph(directSoundDirections(idxSorted(2),1), ...
+    [azi2,ele2,~] = cart2sph(directSoundDirections(idxSorted(2),1), ...
         directSoundDirections(idxSorted(2),2), ...
         directSoundDirections(idxSorted(2),3));
-    
-    gains = 1 ./ (sortedDistances(1:2^mode_dimension)+eps);
-    gains = gains / sum(abs(gains));
-    gainsSH(1,1,:) = gains; % for the SH channel gains (ER and LR)
-    
+       
     aziTarget = azi1 - angdiff(azi1,azi2)*gains(2);
     eleTarget = ele1 - angdiff(ele1,ele2)*gains(2);
     aziDif = angdiff(azi1,azi2)*gains(2);
@@ -241,8 +240,7 @@ for iInterp = 1:numInterpolatedPoints
             hAllDirectSoundInterpolated(1:length_sampDS, :, iInterp) = ...
                 hDirectEncoded;
     end
-    
-    
+        
     %% interpolate early reflections
     if sortedDistances(1) == 0 % if it's an exact point, don't bother interpolating
         hAllEarlyRefsInterpolated(earlyRefsStart_samp:earlyRefsEnd_samp,:,iInterp) = ...
