@@ -12,20 +12,24 @@ if nargin<5; interp_modeDS = 'minPhase';                end
 
 irLength_samp = size(srirs_input,1);
 numMeasurements = size(srirs_input,3);
-numAmbiChannels = size(srirs_input,2);
+numAmbiChannels = (N_interp+1)^2;
 
 nfftDS = 2^nextpow2(length_sampDS);
+
+% ERB parameters (Glasberg and Moore)
+erb_Q = 9.26449;
+erb_min = 24.7;
+erb_low_freq = 10;
+n_bandsER = 48;
+n_bandsLR = 48;
 
 %% Interpolated positions
 
 % work out whether interpolation should be 1D, 2D or 3D
 isPlaneUsed=zeros(size(pos_input,2),1);
 for i = 1:size(pos_input,2)
-    if all(pos_input(:,i) == pos_input(1,i))
-        isPlaneUsed(i) = 0;
-    else
-        isPlaneUsed(i) = 1;
-    end
+    if all(pos_input(:,i) == pos_input(1,i)); isPlaneUsed(i) = 0;
+    else; isPlaneUsed(i) = 1; end
 end
 mode_dimension = sum(isPlaneUsed); % 1 = 1D (planar), 2 = 2D, 3 = 3D
 
@@ -37,7 +41,7 @@ if mode_dimension == 1 % 1D - assumes interpolating on X axis
 elseif mode_dimension == 2 % 2D - assumes interpolating on X and Y axes
     positionsInterpolatedX_cm = min(pos_input(:,1)):resolution_new:max(pos_input(:,1));
     positionsInterpolatedY_cm = min(pos_input(:,2)):resolution_new:max(pos_input(:,2));
-    positionsInterpolatedZ_cm = pos_input(1,3);   
+    positionsInterpolatedZ_cm = pos_input(1,3);
 else % 3D
     positionsInterpolatedX_cm = min(pos_input(:,1)):resolution_new:max(pos_input(:,1));
     positionsInterpolatedY_cm = min(pos_input(:,2)):resolution_new:max(pos_input(:,2));
@@ -114,8 +118,8 @@ for i = 1:numMeasurements
         (1-cos((0:fade_sampER2LR)' / fade_sampER2LR * pi / 2).^2)],[1,numAmbiChannels]);
 end
 
-hAllDirectSound = zeros(size(srirs_input, 1), numAmbiChannels, numMeasurements);
-hAllDirectSound(1:length(winDS),:,:) = srirs_input(1:length(winDS),1:numAmbiChannels,:) .* repmat(winDS,1,numAmbiChannels,numMeasurements);
+hAllDS = zeros(size(srirs_input, 1), numAmbiChannels, numMeasurements);
+hAllDS(1:length(winDS),:,:) = srirs_input(1:length(winDS),1:numAmbiChannels,:) .* repmat(winDS,1,numAmbiChannels,numMeasurements);
 
 %% Spherical Filter Bank / Beamforming
 [~, secDirs] = getTdesign(2*N_interp+1);
@@ -123,9 +127,9 @@ secDirs = rad2deg(secDirs);
 numSecs = size(secDirs, 1);
 
 % Get beam weights. Using max energy vector weights from spherical array processing toolbox
-w_n = beamWeightsMaxEV(N_interp);  
+w_n = beamWeightsMaxEV(N_interp);
 
-w_nm = zeros(size(srirs_input, 2),size(secDirs,1));
+w_nm = zeros(numAmbiChannels,numSecs);
 for i = 1:length(secDirs(:,1))
     w_nm(:,i) = rotateAxisCoeffs(w_n, pi/2-(deg2rad(secDirs(i,2))), deg2rad(secDirs(i,1)), 'real')';
 end
@@ -133,9 +137,9 @@ end
 %% Interpolation
 
 fax = 0:fs/nfftDS:fs/2;
-hAllDirectSoundInterpolated = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
-hAllEarlyRefsInterpolated = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
-hAllReverbInterpolated = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
+hAllDS_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
+hAllER_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
+hAllLR_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
 srirs_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
 
 for iInterp = 1:numInterpolatedPoints
@@ -170,7 +174,7 @@ for iInterp = 1:numInterpolatedPoints
     [azi2,ele2,~] = cart2sph(directSoundDirections(idxSorted(2),1), ...
         directSoundDirections(idxSorted(2),2), ...
         directSoundDirections(idxSorted(2),3));
-       
+    
     aziTarget = azi1 - angdiff(azi1,azi2)*gains(2);
     eleTarget = ele1 - angdiff(ele1,ele2)*gains(2);
     aziDif = angdiff(azi1,azi2)*gains(2);
@@ -180,185 +184,209 @@ for iInterp = 1:numInterpolatedPoints
         case 'rotationOnly'
             % use the nearest direct sound spectrum
             shRotMatrix = getSHrotMtx(rotz(aziCorrectionDeg), N_interp, 'real');
-            hAllDirectSoundInterpolated(:, :, iInterp) = ...
-                hAllDirectSound(:, 1:numAmbiChannels, idxNearest) * shRotMatrix';
+            hAllDS_interp(:, :, iInterp) = ...
+                hAllDS(:, 1:numAmbiChannels, idxNearest) * shRotMatrix';
             
         case 'fixedSpectrum'
             % omits source directivity and distance by using the same direct sound
             % all the time
             idxFixed  = 4; % use this measurement for the direct sound
             shRotMatrix = getSHrotMtx(rotz(aziTarget - aziMeasuredDeg(idxFixed)), Nsh, 'real');
-            hAllDirectSoundInterpolated(:, :, iMeas) = ...
-                hAllDirectSound(:, 1:numAmbiChannels, idxFixed) * shRotMatrix';
+            hAllDS_interp(:,:,iMeas) = ...
+                hAllDS(:, 1:numAmbiChannels, idxFixed) * shRotMatrix';
             
         case 'meanSpectrum'
             % avg of FFTs
             if sortedDistances(1) == 0 % if it's the point of a measurement, bypass interpolation
-                hAllDirectSoundInterpolated(1:length_sampDS, :, iInterp) = ...
-                    hAllDirectSound(1:length_sampDS, 1:numAmbiChannels, idxNearest);
+                hAllDS_interp(1:length_sampDS, :, iInterp) = ...
+                    hAllDS(1:length_sampDS, 1:numAmbiChannels, idxNearest);
             else
-                directSoundNearestPoints = ...
-                    squeeze(hAllDirectSound(1:length_sampDS,...
-                    :, idxSorted(1:2^mode_dimension)));
+                nearestMeasDS = ...
+                    squeeze(hAllDS(1:length_sampDS, :, idxSorted(1:2^mode_dimension)));
                 
-                XDSNearestPoints = fft(directSoundNearestPoints);
-                XDSNearestPoints_gain = XDSNearestPoints .* gainsSH;
-                XdirectSoundNearestPointsInterp = sum(XDSNearestPoints_gain,3);
+                XDSnearestMeas = fft(nearestMeasDS);
+                XDSnearestMeas_gain = XDSnearestMeas .* gainsSH;
+                XDSnearestMeas_interp = sum(XDSnearestMeas_gain,3);
                 
-                hDirectInterp = real(ifft(XdirectSoundNearestPointsInterp));
+                hDS_interp = real(ifft(XDSnearestMeas_interp));
                 % encode to correct rotation. Remove the convert function
                 % if the SRIRs are already in N3D normalisation
-                hDirectEncoded = convert_N3D_SN3D(rotateHOA_N3D(convert_N3D_SN3D(hDirectInterp,'sn2n'),aziDif,eleDif,0),'n2sn');
+                hDS_enc = convert_N3D_SN3D(rotateHOA_N3D(convert_N3D_SN3D(hDS_interp,'sn2n'),aziDif,eleDif,0),'n2sn');
                 
                 % normalise RMS of direct sound
-                rmsNormValue = sum(rms(squeeze(directSoundNearestPoints(:,1,:))) * gains);
-                hDirectEncoded = hDirectEncoded / rms(hDirectEncoded(:, 1)) * rmsNormValue;
-                hAllDirectSoundInterpolated(1:length_sampDS, :, iInterp) = ...
-                    hDirectEncoded;
+                rmsNormValue = sum(rms(squeeze(nearestMeasDS(:,1,:))) * gains);
+                hDS_enc = hDS_enc / rms(hDS_enc(:, 1)) * rmsNormValue;
+                hAllDS_interp(1:length_sampDS, :, iInterp) = ...
+                    hDS_enc;
             end
             
         case 'minPhase'
             % interpolate direct sound spectrum of the nearest 4 points
             % (if 2d) or 2 points (if 1d)
             
-            directSoundNearestPoints = ...
-                squeeze(hAllDirectSound(1:length_sampDS, 1, idxSorted(1:2^mode_dimension)));
-            XdirectSoundNearestPoints = fft(directSoundNearestPoints, nfftDS);
-            XdirectSoundNearestPointsSmooth = ...
-                smoothSpectrum(abs(XdirectSoundNearestPoints(1:nfftDS/2+1, :)), fax(:), 3);
-            XdirectSoundNearestPointsInterp = XdirectSoundNearestPointsSmooth * gains;
-            hMinPhase = designMinPhase(XdirectSoundNearestPointsInterp);
+            nearestMeasDS = ...
+                squeeze(hAllDS(1:length_sampDS, 1, idxSorted(1:2^mode_dimension)));
+            XDSnearestMeas = fft(nearestMeasDS, nfftDS);
+            XDSnearestMeas_smooth = ...
+                smoothSpectrum(abs(XDSnearestMeas(1:nfftDS/2+1, :)), fax(:), 3);
+            XDSnearestMeas_interp = XDSnearestMeas_smooth * gains;
+            hMinPhase = designMinPhase(XDSnearestMeas_interp);
             
             % encode to correct rotation. Remove the convert function
             % if the SRIRs are in N3D normalisation
-            hDirectEncoded = hMinPhase(1:length_sampDS) * ...
+            hDS_enc = hMinPhase(1:length_sampDS) * ...
                 convert_N3D_SN3D(evalSH(N_interp, [aziTarget, eleTarget]),'n2sn');
             
             % normalise RMS of direct sound
-            rmsNormValue = sum(rms(squeeze(directSoundNearestPoints(:,1,:))) * gains);
-            hDirectEncoded = hDirectEncoded / rms(hDirectEncoded(:, 1)) * rmsNormValue;
-            hAllDirectSoundInterpolated(1:length_sampDS, :, iInterp) = ...
-                hDirectEncoded;
+            rmsNormValue = sum(rms(squeeze(nearestMeasDS(:,1,:))) * gains);
+            hDS_enc = hDS_enc / rms(hDS_enc(:, 1)) * rmsNormValue;
+            hAllDS_interp(1:length_sampDS, :, iInterp) = ...
+                hDS_enc;
     end
-        
+    
     %% interpolate early reflections
-    if sortedDistances(1) == 0 % if it's an exact point, don't bother interpolating
-        hAllEarlyRefsInterpolated(earlyRefsStart_samp:earlyRefsEnd_samp,:,iInterp) = ...
+    if sortedDistances(1) == 0 % if it's an exact point, don't interpolate
+        hAllER_interp(earlyRefsStart_samp:earlyRefsEnd_samp,:,iInterp) = ...
             earlyRefsIsolated(:,1:numAmbiChannels,1);
     else
         % take fft of nearest measurements, weight by gains
-        XearlyRefsNearestPoints = fft(earlyRefsIsolated);
-        XearlyRefsNearestPoints_gain = XearlyRefsNearestPoints .* gainsSH;
+        XERnearestMeas = fft(earlyRefsIsolated);
+        XERnearestMeas_gain = XERnearestMeas .* gainsSH;
         
         % then get the weighted nearest measurements in sectors
-        XearlyRefsNearestPoints_gain_secs = zeros(length(XearlyRefsNearestPoints_gain(:,1,1)),numSecs,length(XearlyRefsNearestPoints_gain(1,1,:)));
+        XERnearestMeas_gain_secs = ...
+            zeros(size(XERnearestMeas_gain,1),numSecs,size(XERnearestMeas_gain,3));
         for i = 1:2^mode_dimension
-            XearlyRefsNearestPoints_gain_secs(:,:,i) = XearlyRefsNearestPoints_gain(:,:,i) * w_nm;
+            XERnearestMeas_gain_secs(:,:,i) = XERnearestMeas_gain(:,:,i) * w_nm;
         end
         
-        HEarlyInterp_secs = zeros(length(XearlyRefsNearestPoints_gain(:,1,1)),numSecs);
+        HER_interp_secs = zeros(size(XERnearestMeas_gain,1),numSecs);
         for secIdx = 1:numSecs % for each sector:
-            XearlyRefsNearestPoints_gain_sector = XearlyRefsNearestPoints_gain_secs(:, secIdx,:);
-            XearlyRefsNearestPointsInterp_sector = sum(XearlyRefsNearestPoints_gain_sector,3);
+            XERnearestMeas_gain_sec = XERnearestMeas_gain_secs(:, secIdx,:);
+            XERnearestMeas_interp_sec = sum(XERnearestMeas_gain_sec,3);
             
-            % over frequency bands, obtain the RMS magnitude difference of the
-            % interpolated and nearest IRs (as comb filtering etc produces reductions in magnitude). 
-            n_bandsER = nfftER/20; % must be integer
-            rmsER_target = zeros(n_bandsER,1);
-            rmsER_current = zeros(n_bandsER,1);
-            for j = 1:n_bandsER
-                % calculate rms of freq bands
-                rmsER_target(j,:) = sum(rms(XearlyRefsNearestPoints_gain_sector(round((j-1)*nfftER/n_bandsER+1):round(j*nfftER/n_bandsER),1,:)),3);
-                rmsER_current(j,:) = rms(XearlyRefsNearestPointsInterp_sector(round((j-1)*nfftER/n_bandsER+1):round(j*nfftER/n_bandsER),1));
+            % ERB frequency bands
+            ERBfreqs = flip(-(erb_Q*erb_min)+exp((1:n_bandsER)'*(-log(fs/2 + erb_Q*erb_min) + ...
+                log(erb_low_freq + erb_Q*erb_min))/n_bandsER) * (fs/2 + erb_Q*erb_min));
+            freqs = 1:fs/nfftER:fs;
+            freqsInd = zeros(n_bandsER,1);
+            for i = 1:length(ERBfreqs)
+                freqsInd(i) = find(freqs>=ERBfreqs(i),1);
             end
-            rmsDiffER = rmsER_target./rmsER_current;
+            freqsInd(1) = 1; freqsInd(end) = find(freqs>=22000,1); % limit the first and last
+            
+            % over frequency bands, obtain the RMS magnitude difference of the interpolated and nearest IRs
+            rmsER_target = zeros(n_bandsER-1,1);
+            rmsER_current = zeros(n_bandsER-1,1);
+            for j = 1:n_bandsER-1 % calculate rms of freq bands
+                rmsER_target(j,:) = sum(rms(XERnearestMeas_gain_sec(freqsInd(j):freqsInd(j+1),1,:)),3);
+                rmsER_current(j,:) = rms(XERnearestMeas_interp_sec(freqsInd(j):freqsInd(j+1),1));
+            end
+            rmsDiffER = rmsER_target ./ rmsER_current;
             
             % create array of RMS equalisation gains
-            rmsGainsER = zeros(length(XearlyRefsNearestPointsInterp_sector),1);
-            for j = 1:n_bandsER
-                if j == n_bandsER % last band
-                    rmsGainsER((j-1)*nfftER/n_bandsER+1:j*nfftER/n_bandsER,1) = ...
-                        linspace(rmsDiffER(j,1),rmsDiffER(j,1),length(round((j-1)*nfftER/n_bandsER+1):round(j*nfftER/n_bandsER)));
+            rmsGainsER = zeros(length(XERnearestMeas_interp_sec),1);
+            for j = 1:n_bandsER-1
+                if j == n_bandsER-1 % last band
+                    rmsGainsER(freqsInd(j):freqsInd(j+1),1) = ...
+                        linspace(rmsDiffER(j,1),rmsDiffER(j,1),length(freqsInd(j):freqsInd(j+1)));
                 else
-                    rmsGainsER((j-1)*nfftER/n_bandsER+1:j*nfftER/n_bandsER,1) = ...
-                        linspace(rmsDiffER(j,1),rmsDiffER(j+1,1),length(round((j-1)*nfftER/n_bandsER+1):round(j*nfftER/n_bandsER)));
+                    rmsGainsER(freqsInd(j):freqsInd(j+1),1) = ...
+                        linspace(rmsDiffER(j,1),rmsDiffER(j+1,1),length(freqsInd(j):freqsInd(j+1)));
                 end
             end
+            % fade out the 20khz band to the nfft/2 band with a cosine window
+            rmsGainsER(freqsInd(end)+1:nfftER/2) = (cos((0:length(rmsGainsER(freqsInd(end)+1:nfftER/2))-1)' /...
+                (length(rmsGainsER(freqsInd(end)+1:nfftER/2))-1) * pi / 2).^2)*rmsDiffER(end);
+            rmsGainsER(nfftER/2+1:end) = flip(rmsGainsER(1:nfftER/2));
+            
             % apply gains
-            HEarlyInterp_sector = XearlyRefsNearestPointsInterp_sector.*rmsGainsER;
-            HEarlyInterp_secs(:,secIdx) = HEarlyInterp_sector;
+            HER_interp_sec = XERnearestMeas_interp_sec.*rmsGainsER;
+            HER_interp_secs(:,secIdx) = HER_interp_sec;
         end
         
         % back into SH domain (still in Freq domain though)
-        HEarlyInterp = HEarlyInterp_secs  * w_nm'; % my own sector stuff
+        HER_interp = HER_interp_secs * w_nm';
         
-        % needs some normalisation due to the beamWeightsMaxEV stuff
+        % needs some normalisation due to the beamWeightsMaxEV
         w_n_gain = w_n.^2 * length(secDirs(:,1)) ./ ((0:1:N_interp) * 2 + 1)';
-        for i = 1:length(HEarlyInterp(1,:))
+        for i = 1:length(HER_interp(1,:))
             n = ceil(sqrt(i)-1);
-            HEarlyInterp(:,i) = HEarlyInterp(:,i) / w_n_gain(n+1);
+            HER_interp(:,i) = HER_interp(:,i) / w_n_gain(n+1);
         end
         
         % return to time-domain and window
-        hEarlyInterp = real(ifft(HEarlyInterp)) ;%.* win2;
+        hER_interp = real(ifft(HER_interp));
         
         % normalise interpolated early reflections -- for each SH channel
         rmsNormValueER = sum(rms(earlyRefsIsolated) .* repmat(gainsSH,1,numAmbiChannels),3);
-        hEarlyInterp = hEarlyInterp ./ rms(hEarlyInterp) .* rmsNormValueER;
+        hER_interp = hER_interp ./ rms(hER_interp) .* rmsNormValueER;
         
-        hAllEarlyRefsInterpolated(earlyRefsStart_samp:earlyRefsEnd_samp, :, iInterp) = ...
-            hEarlyInterp;
+        hAllER_interp(earlyRefsStart_samp:earlyRefsEnd_samp, :, iInterp) = ...
+            hER_interp;
     end
     
     %% Interpolate late reverb
-    if sortedDistances(1) == 0 % if it's an exact point, don't bother interpolating
-        hAllReverbInterpolated(lateRevStart_samp:end,:,iInterp) = ...
+    if sortedDistances(1) == 0 % if it's an exact point, don't interpolate
+        hAllLR_interp(lateRevStart_samp:end,:,iInterp) = ...
             lateRevIsolated(:, 1:numAmbiChannels, 1);
     else
-        XlateNearestPoints = fft(lateRevIsolated);
+        XLRnearestMeas = fft(lateRevIsolated);
         
-        XlateNearestPoints_gain = XlateNearestPoints .* gainsSH;
-        XlateNearestPointsInterp = sum(XlateNearestPoints_gain,3);
+        % linear interpolation
+        XLRnearestMeas_gain = XLRnearestMeas .* gainsSH;
+        XLRnearestMeas_interp = sum(XLRnearestMeas_gain,3);
         
-        % over frequency bands, obtain the RMS magnitude difference of the
-        % interpolated and nearest IRs (as comb filtering etc produces reductions in magnitude). 
-        n_bandsLR = nfftLR/20; % must be integer
-        rmsLR_target = zeros(n_bandsLR,1);
-        rmsLR_current = zeros(n_bandsLR,1);
-        for j = 1:n_bandsLR
-            % calculate rms of freq bands
-            rmsLR_target(j) = sum(rms((XlateNearestPoints_gain(round((j-1)*(nfftLR/n_bandsLR)+1):round((j)*(nfftLR/n_bandsLR)),1,:))),3);
-            rmsLR_current(j) = rms((XlateNearestPointsInterp(round((j-1)*(nfftLR/n_bandsLR)+1):round((j)*(nfftLR/n_bandsLR)),1)));
+        % ERB frequency bands
+        ERBfreqs = flip(-(erb_Q*erb_min)+exp((1:n_bandsLR)'*(-log(fs/2 + erb_Q*erb_min) + ...
+            log(erb_low_freq + erb_Q*erb_min))/n_bandsLR) * (fs/2 + erb_Q*erb_min));
+        freqs = 1:fs/nfftLR:fs;
+        freqsInd = zeros(n_bandsLR,1);
+        for i = 1:length(ERBfreqs)
+            freqsInd(i) = find(freqs>=ERBfreqs(i),1);
         end
-        rmsDiffLR = rmsLR_target./rmsLR_current;
+        freqsInd(1) = 1; freqsInd(end) = find(freqs>=22000,1); % limit the first and last
         
-        % create matrix of RMS equalisation gains
-        rmsGainsLR = zeros(length(XlateNearestPointsInterp),1);
-        for j = 1:n_bandsLR
-            if j == n_bandsLR % last band
-                rmsGainsLR(((j-1)*(nfftLR/n_bandsLR)+1):((j)*(nfftLR/n_bandsLR)),1) = ...
-                    linspace(rmsDiffLR(j,1),rmsDiffLR(j,1),length(round((j-1)*(nfftLR/n_bandsLR)+1):round((j)*(nfftLR/n_bandsLR))));
+        % over frequency bands, obtain the RMS magnitude difference of the interpolated and nearest IRs
+        rmsLR_target = zeros(n_bandsLR-1,1);
+        rmsLR_current = zeros(n_bandsLR-1,1);
+        for j = 1:n_bandsLR-1 % calculate rms of freq bands
+            rmsLR_target(j,:) = sum(rms(XLRnearestMeas_gain(freqsInd(j):freqsInd(j+1),1,:)),3);
+            rmsLR_current(j,:) = rms(XLRnearestMeas_interp(freqsInd(j):freqsInd(j+1),1));
+        end
+        rmsDiffLR = rmsLR_target ./ rmsLR_current;
+        
+        % create array of RMS equalisation gains
+        rmsGainsLR = zeros(length(XLRnearestMeas_interp),1);
+        for j = 1:n_bandsLR-1
+            if j == n_bandsLR-1 % last band
+                rmsGainsLR(freqsInd(j):freqsInd(j+1),1) = ...
+                    linspace(rmsDiffLR(j,1),rmsDiffLR(j,1),length(freqsInd(j):freqsInd(j+1)));
             else
-                rmsGainsLR(((j-1)*(nfftLR/n_bandsLR)+1):((j)*(nfftLR/n_bandsLR)),1) = ...
-                    linspace(rmsDiffLR(j,1),rmsDiffLR(j+1,1),length(round((j-1)*(nfftLR/n_bandsLR)+1):round((j)*(nfftLR/n_bandsLR))));
+                rmsGainsLR(freqsInd(j):freqsInd(j+1),1) = ...
+                    linspace(rmsDiffLR(j,1),rmsDiffLR(j+1,1),length(freqsInd(j):freqsInd(j+1)));
             end
         end
-        % apply gains, return to time domain and windowing at start and end of ERs
-        hLateInterp = real(ifft(XlateNearestPointsInterp.*repmat(rmsGainsLR,[1,numAmbiChannels]))); % .* repmat(win2,[1,numAmbiChannels]);
+        % fade out the 20khz band to the nfft/2 band with a cosine window
+        rmsGainsLR(freqsInd(end)+1:nfftLR/2) = (cos((0:length(rmsGainsLR(freqsInd(end)+1:nfftLR/2))-1)' /...
+            (length(rmsGainsLR(freqsInd(end)+1:nfftLR/2))-1) * pi / 2).^2)*rmsDiffLR(end);
+        rmsGainsLR(nfftLR/2+1:end) = flip(rmsGainsLR(1:nfftLR/2));
+        
+        % apply gains, return to time domain and windowing at start and end of LR
+        hLR_interp = real(ifft(XLRnearestMeas_interp.*repmat(rmsGainsLR,[1,numAmbiChannels])));
         
         % normalise late reverb for each SH channel
         rmsNormValueLR = sum(rms(lateRevIsolated) .* repmat(gainsSH,1,numAmbiChannels),3);
-        hLateInterp = hLateInterp ./ rms(hLateInterp) .* rmsNormValueLR;
+        hLR_interp = hLR_interp ./ rms(hLR_interp) .* rmsNormValueLR;
         
-        hAllReverbInterpolated(lateRevStart_samp:end, :, iInterp) = ...
-            hLateInterp;
+        hAllLR_interp(lateRevStart_samp:end, :, iInterp) = ...
+            hLR_interp;
     end
     
     %% Construct the final IRs
-    % add three parts together
-    srirs_interp(:, :, iInterp) = hAllDirectSoundInterpolated(:, :, iInterp) + ...
-        hAllEarlyRefsInterpolated(:, :, iInterp) +...
-        hAllReverbInterpolated(:, :, iInterp);
+    srirs_interp(:, :, iInterp) = hAllDS_interp(:, :, iInterp) + ...
+        hAllER_interp(:, :, iInterp) +...
+        hAllLR_interp(:, :, iInterp);
     
 end
 end
