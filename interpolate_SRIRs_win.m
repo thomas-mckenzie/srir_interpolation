@@ -60,9 +60,9 @@ numInterpolatedPoints = length(pos_interp);
 %% Calculate the cutoff between early refs and late reverb
 % based on when the energy decay curve amplitude is lower than a target
 
-numRegions = length(region_limits_db)+1;
+numRegions = length(region_limits_db);
 
-region_limits_samp = zeros(numRegions,numMeasurements);
+region_limits_samp = zeros(numRegions, numMeasurements);
 
 [B_decay, A_decay] = octdsgn(1000, fs, 3);
 for i = 1:numMeasurements
@@ -72,13 +72,14 @@ for i = 1:numMeasurements
     edc = flip(int_sch(2:end));
     edc = edc/max(edc);
     
-    for iRegion = 1:numRegions -1
+    for iRegion = 1:numRegions 
     ind_at_t_L = find(db(edc, 'power')<region_limits_db(iRegion),1);
-    region_limits_samp(iRegion, i) = ceil(ind_at_t_L/1000) * 1000; % nearest 1000 (empirically chosen)
+    region_limits_samp(iRegion, i) = ceil(ind_at_t_L/500) * 500; % nearest 500 (empirically chosen)
     end
-    region_limits_samp(end, i) = irLength_samp - fade_sampRegions/2;
+    
 end
 
+region_limits_samp(region_limits_samp>irLength_samp) = irLength_samp;
 
 %% initial DOA (used for interpolating direct sound)
 
@@ -110,39 +111,39 @@ wins = zeros(irLength_samp,numAmbiChannels,numRegions, numMeasurements);
 
 for i = 1:numMeasurements
     
-    for iRegion = 1:numRegions-1        
+    for iRegion = 1:numRegions
         if iRegion == 1
-            
             % length of the window
             lenWin = region_limits_samp(1,i) - length_sampDS;
             
-            endWin = region_limits_samp(1, i) + fade_sampRegions / 2;
-            startWin = length_sampDS - fade_sampDS2Regions / 2;
+            endWin(iRegion, i) = region_limits_samp(1, i) + fade_sampRegions / 2;
+            startWin(iRegion, i) = length_sampDS - fade_sampDS2Regions / 2;
             
-              % at the boundary, the fade in is at half the length 
+            % at the boundary, the fade in is at half the length 
             win = [sin((0:fade_sampDS2Regions-1)' / fade_sampDS2Regions * pi /2).^2; ...
             ones(lenWin-fade_sampRegions/2-fade_sampDS2Regions/2, 1); ...
             cos((0:fade_sampRegions-1)' / fade_sampRegions * pi /2).^2];
             
+
         else 
             lenWin = region_limits_samp(iRegion,i) - region_limits_samp(iRegion-1,i);
             
-            endWin = region_limits_samp(iRegion, i) + fade_sampRegions / 2;
-            startWin = region_limits_samp(iRegion-1, i) - fade_sampRegions / 2;
+            endWin(iRegion, i)  = region_limits_samp(iRegion, i) + fade_sampRegions / 2;
+            
+            startWin(iRegion, i)  = region_limits_samp(iRegion-1, i) - fade_sampRegions / 2;
         
             % at the boundary, the fade in is at half the length 
             win = [sin((0:fade_sampRegions-1)' / fade_sampRegions * pi /2).^2; ...
             ones(lenWin-fade_sampRegions, 1); ...
             cos((0:fade_sampRegions-1)' / fade_sampRegions * pi /2).^2];
-            
         end    
-        
-            wins(startWin:endWin-1,:,iRegion, i) = ...
+            wins(startWin(iRegion, i):endWin(iRegion, i) -1,:,iRegion, i) = ...
                 repmat(win,[1,numAmbiChannels]);  
     end
 end
 
 wins(irLength_samp+1:end, :, :, :) = [];
+endWin = min(endWin, irLength_samp);
 
 hAllDirectSound = zeros(size(srirs_input, 1), numAmbiChannels, numMeasurements);
 hAllDirectSound(1:length(winDS),:,:) = srirs_input(1:length(winDS),1:numAmbiChannels,:) .* repmat(winDS,1,numAmbiChannels,numMeasurements);
@@ -262,18 +263,33 @@ for iInterp = 1:numInterpolatedPoints
 for iRegion = 1:numRegions
     
     % isolate early and late reverb, and window
-    nfft = irLength_samp;
+  
     
-    hRegion = srirs_input(:, 1:numAmbiChannels, idxSorted(1:2^mode_dimension)).* ...
-        squeeze(wins(:, :, iRegion,  idxSorted(1:2^mode_dimension)));
+   % hRegion = srirs_input(:, 1:numAmbiChannels, idxSorted(1:2^mode_dimension)).* ...
+   %     squeeze(wins(:, :, iRegion,  idxSorted(1:2^mode_dimension)));
+   
+    idxSelected =  idxSorted(1:2^mode_dimension);
     
+    selectedStartWin = min(startWin(iRegion, idxSelected));
+    selectedEndWin = max(endWin(iRegion, idxSelected));
+    
+    regionLength = selectedEndWin-selectedStartWin+1;
+   
+    % power of 2 for computational speed, one more power to account for some time aliasing
+    nfft = 2^(nextpow2(regionLength)+1); 
+    
+    hRegion = srirs_input(selectedStartWin:selectedEndWin, ...
+        1:numAmbiChannels, idxSelected).* ...
+        squeeze(wins(selectedStartWin:selectedEndWin, :, iRegion, idxSelected));
+
     if sortedDistances(1) == 0 % if it's an exact point, don't bother interpolating
-        hAllReverbInterpolated(:,:,iInterp) =  hAllReverbInterpolated(:,:,iInterp)+ ...
+        hAllReverbInterpolated(selectedStartWin:selectedEndWin, : ,iInterp) = ...
+            hAllReverbInterpolated(selectedStartWin:selectedEndWin,:,iInterp)+ ...
             hRegion(:, :, 1);
     else
         
         % take fft of nearest measurements, weight by gains
-        XRefsNearestPoints = fft(hRegion);
+        XRefsNearestPoints = fft(hRegion, nfft);
         XRefsNearestPoints_gain = XRefsNearestPoints .* gainsSH;
         
         % then get the weighted nearest measurements in sectors
@@ -291,7 +307,7 @@ for iRegion = 1:numRegions
             
             % over frequency bands, obtain the RMS magnitude difference of the
             % interpolated and nearest IRs (as comb filtering etc produces reductions in magnitude). 
-            n_bandsER = nfft/20; % must be integer
+            n_bandsER = nfft/32; % must be integer
             rmsER_target = zeros(n_bandsER,1);
             rmsER_current = zeros(n_bandsER,1);
             for j = 1:n_bandsER
@@ -334,16 +350,16 @@ for iRegion = 1:numRegions
         rmsNormValueER = sum(rms(hRegion) .* repmat(gainsSH,1,numAmbiChannels),3);
         hInterp = hInterp ./ rms(hInterp) .* rmsNormValueER;
         
-        hAllReverbInterpolated(:, :, iInterp) =  hAllReverbInterpolated(:, :, iInterp) +  ...
-            hInterp;
+        hAllReverbInterpolated(selectedStartWin:selectedEndWin, : ,iInterp) = ...
+            hAllReverbInterpolated(selectedStartWin:selectedEndWin,:,iInterp) + hInterp(1:regionLength, :);
         
-      %  figure(10), plot(hAllReverbInterpolated(:, 1, iInterp))
-      %  pause(.2)
-      
+        % figure(10), plot(hAllReverbInterpolated(:, 1, iInterp))
+        % pause(.2)
+        iInterp
     end    
 end
     %% Construct the final IRs
     % add three parts together
     srirs_interp(:, :, iInterp) = hAllDirectSoundInterpolated(:, :, iInterp) + ...
-        hAllReverbInterpolated(:, :, iInterp);    
+        hAllReverbInterpolated(:, :, iInterp);
 end

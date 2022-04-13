@@ -39,7 +39,6 @@ pos_input = round(sofa.ListenerPosition*100);
 %% RUN THE FUNCTION
 
 % response is partioned into regions containing proportions of energy.
-
 region_limits_db = -5:-10:-50;
 
 [srirs_interp,pos_interp] = ...
