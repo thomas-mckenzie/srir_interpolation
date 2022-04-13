@@ -17,6 +17,13 @@ numAmbiChannels = size(srirs_input,2);
 
 nfftDS = 2^nextpow2(length_sampDS);
 
+
+% ERB parameters (Glasberg and Moore)
+erb_Q = 9.26449;
+erb_min = 24.7;
+erb_low_freq = 10;
+n_bands = 48;
+
 %% Interpolated positions
 
 % work out whether interpolation should be 1D, 2D or 3D
@@ -262,12 +269,7 @@ for iInterp = 1:numInterpolatedPoints
     
 for iRegion = 1:numRegions
     
-    % isolate early and late reverb, and window
-  
-    
-   % hRegion = srirs_input(:, 1:numAmbiChannels, idxSorted(1:2^mode_dimension)).* ...
-   %     squeeze(wins(:, :, iRegion,  idxSorted(1:2^mode_dimension)));
-   
+    % closest points
     idxSelected =  idxSorted(1:2^mode_dimension);
     
     selectedStartWin = min(startWin(iRegion, idxSelected));
@@ -298,63 +300,75 @@ for iRegion = 1:numRegions
             XRefsNearestPoints_gain_secs(:,:,i) = XRefsNearestPoints_gain(:,:,i) * w_nm;
         end
         
-        HInterp_secs = zeros(length(XRefsNearestPoints_gain(:,1,1)),numSecs);
+        Hinterp_secs = zeros(length(XRefsNearestPoints_gain(:,1,1)),numSecs);
         
         for secIdx = 1:numSecs % for each sector
             
-            XRefsNearestPoints_gain_sector = XRefsNearestPoints_gain_secs(:, secIdx,:);
-            XRefsNearestPointsInterp_sector = sum(XRefsNearestPoints_gain_sector,3);
+            XnearestMeas_gain_sec = XRefsNearestPoints_gain_secs(:, secIdx,:);
+            XnearestMeas_interp_sec = sum(XnearestMeas_gain_sec,3);
             
-            % over frequency bands, obtain the RMS magnitude difference of the
-            % interpolated and nearest IRs (as comb filtering etc produces reductions in magnitude). 
-            n_bandsER = nfft/32; % must be integer
-            rmsER_target = zeros(n_bandsER,1);
-            rmsER_current = zeros(n_bandsER,1);
-            for j = 1:n_bandsER
-                % calculate rms of freq bands
-                rmsER_target(j,:) = sum(rms(XRefsNearestPoints_gain_sector(round((j-1)*nfft/n_bandsER+1):round(j*nfft/n_bandsER),1,:)),3);
-                rmsER_current(j,:) = rms(XRefsNearestPointsInterp_sector(round((j-1)*nfft/n_bandsER+1):round(j*nfft/n_bandsER),1));
+            % ERB frequency bands
+            ERBfreqs = flip(-(erb_Q*erb_min)+exp((1:n_bands)'*(-log(fs/2 + erb_Q*erb_min) + ...
+                log(erb_low_freq + erb_Q*erb_min))/n_bands) * (fs/2 + erb_Q*erb_min));
+            freqs = 1:fs/nfft:fs;
+            freqsInd = zeros(n_bands,1);
+            for i = 1:length(ERBfreqs)
+                freqsInd(i) = find(freqs>=ERBfreqs(i),1);
             end
-            rmsDiffER = rmsER_target./rmsER_current;
+            freqsInd(1) = 1; freqsInd(end) = find(freqs>=22000,1); % limit the first and last
+            
+            % over frequency bands, obtain the RMS magnitude difference of the interpolated and nearest IRs
+            rmstarget = zeros(n_bands-1,1);
+            rmscurrent = zeros(n_bands-1,1);
+            for j = 1:n_bands-1 % calculate rms of freq bands
+                rmstarget(j,:) = sum(rms(XnearestMeas_gain_sec(freqsInd(j):freqsInd(j+1),1,:)),3);
+                rmscurrent(j,:) = rms(XnearestMeas_interp_sec(freqsInd(j):freqsInd(j+1),1));
+            end
+            rmsDiff = rmstarget ./ rmscurrent;
             
             % create array of RMS equalisation gains
-            rmsGainsER = zeros(length(XRefsNearestPointsInterp_sector),1);
-            for j = 1:n_bandsER
-                if j == n_bandsER % last band
-                    rmsGainsER((j-1)*nfft/n_bandsER+1:j*nfft/n_bandsER,1) = ...
-                        linspace(rmsDiffER(j,1),rmsDiffER(j,1),length(round((j-1)*nfft/n_bandsER+1):round(j*nfft/n_bandsER)));
+            rmsGains = zeros(length(XnearestMeas_interp_sec),1);
+            for j = 1:n_bands-1
+                if j == n_bands-1 % last band
+                    rmsGains(freqsInd(j):freqsInd(j+1),1) = ...
+                        linspace(rmsDiff(j,1),rmsDiff(j,1),length(freqsInd(j):freqsInd(j+1)));
                 else
-                    rmsGainsER((j-1)*nfft/n_bandsER+1:j*nfft/n_bandsER,1) = ...
-                        linspace(rmsDiffER(j,1),rmsDiffER(j+1,1),length(round((j-1)*nfft/n_bandsER+1):round(j*nfft/n_bandsER)));
+                    rmsGains(freqsInd(j):freqsInd(j+1),1) = ...
+                        linspace(rmsDiff(j,1),rmsDiff(j+1,1),length(freqsInd(j):freqsInd(j+1)));
                 end
             end
+            % fade out the 20khz band to the nfft/2 band with a cosine window
+            rmsGains(freqsInd(end)+1:nfft/2) = (cos((0:length(rmsGains(freqsInd(end)+1:nfft/2))-1)' /...
+                (length(rmsGains(freqsInd(end)+1:nfft/2))-1) * pi / 2).^2)*rmsDiff(end);
+            rmsGains(nfft/2+1:end) = flip(rmsGains(1:nfft/2));
+            
             % apply gains
-            HInterp_sector = XRefsNearestPointsInterp_sector.*rmsGainsER;
-            HInterp_secs(:,secIdx) = HInterp_sector;
+            Hinterp_sec = XnearestMeas_interp_sec.* rmsGains;
+            Hinterp_secs(:,secIdx) = Hinterp_sec;
         end
         
         % back into SH domain (still in Freq domain though)
-        HInterp = HInterp_secs  * w_nm'; % my own sector stuff
+        Hinterp = Hinterp_secs * w_nm';
         
-        % needs some normalisation due to the beamWeightsMaxEV stuff
+        % needs some normalisation due to the beamWeightsMaxEV
         w_n_gain = w_n.^2 * length(secDirs(:,1)) ./ ((0:1:N_interp) * 2 + 1)';
-        for i = 1:length(HInterp(1,:))
+        for i = 1:length(Hinterp(1,:))
             n = ceil(sqrt(i)-1);
-            HInterp(:,i) = HInterp(:,i) / w_n_gain(n+1);
+            Hinterp(:,i) = Hinterp(:,i) / w_n_gain(n+1);
         end
         
         % return to time-domain and window
-        hInterp = real(ifft(HInterp)) ;%.* win2;
+        hInterp = real(ifft(Hinterp));
         
         % normalise interpolated early reflections -- for each SH channel
-        rmsNormValueER = sum(rms(hRegion) .* repmat(gainsSH,1,numAmbiChannels),3);
-        hInterp = hInterp ./ rms(hInterp) .* rmsNormValueER;
+        rmsNormValue = sum(rms(hRegion) .* repmat(gainsSH,1,numAmbiChannels),3);
+        hInterp = hInterp ./ rms(hInterp) .* rmsNormValue;
         
         hAllReverbInterpolated(selectedStartWin:selectedEndWin, : ,iInterp) = ...
             hAllReverbInterpolated(selectedStartWin:selectedEndWin,:,iInterp) + hInterp(1:regionLength, :);
         
-        % figure(10), plot(hAllReverbInterpolated(:, 1, iInterp))
-        % pause(.2)
+        figure(10), plot(hAllReverbInterpolated(:, 1, iInterp))
+        pause(.1)
         iInterp
     end    
 end
