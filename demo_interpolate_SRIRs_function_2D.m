@@ -1,20 +1,27 @@
+% The user is directed to the ICA 2022 paper for details:
+% ﻿McKenzie, T., Meyer-Kahlen, N., Daugintis, R., McCormack, L., Schlecht, S. 
+% J., & Pulkki, V. (2022). Perceptual interpolation and rendering of coupled 
+% room spatial room impulse responses. International Congress on Acoustics, 
+% Korea. 
+% 
+% This demo script uses a 2D dataset of SRIRs.  
+% 
+% Thomas McKenzie, 2022. thomas.mckenzie@aalto.fi / tom.mckenzie07@gmail.com
+
+% positions are in the motive system with the "z up" setting which is the 
+% same, right handed, x in the front system that sofa and the 6DoFconv VST
+% use x front y left z up
+
 % close all
 clear
 clc
-
-%%%%%%%%%%%%%%% 2D ----- NILS ARNI DATASET
-
-% positions are in the motive system with the "z up" setting
-% which is the same, right handed, x in the front system that
-% sofa and the tv convolver use
-% x front y left z up
 
 sofa = SOFAload('arni_dataset_no_interp.sofa');
 
 %% configure
 
 % choose new inter-measurement distance 
-resolution_new = 5;
+resolution_new = 10;
 
 % minPhase, rotationOnly or fixedSpectrum or meanSpectrum (direct sound
 % interpolation method)
@@ -45,7 +52,7 @@ run analyse_interpolated_SRIRs_function_noCorrect.m
 
 
 %% Save to sofa
-%{
+% %{
 SOFAstart()
 
 Obj = sofa;
@@ -66,12 +73,12 @@ Obj.GLOBAL_Comment = ' ';
 Obj.GLOABL_Title =  'Responses on a line, interpolated';
 
 % save the SOFA file
-switch INTERPOLATION_MODE_DS
-    case 'meanSpectrum'
-        SOFAfn = fullfile(['srirInterp_ms_',num2str(measReduction),'.sofa']);
-    case 'minPhase'
-        SOFAfn = fullfile(['srirInterp_mp_',num2str(measReduction),'.sofa']);
-end
+% switch INTERPOLATION_MODE_DS
+%     case 'meanSpectrum'
+        SOFAfn = fullfile(['srirInterp_2d_noWin.sofa']);
+%     case 'minPhase'
+%         SOFAfn = fullfile(['srirInterp_mp_',num2str(measReduction),'.sofa']);
+% end
 
 disp(['Saving:  ' SOFAfn]);
 Obj = SOFAsave(SOFAfn, Obj, 1);

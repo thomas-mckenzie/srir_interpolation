@@ -1,6 +1,15 @@
 function [srirs_interp,pos_interp] = interpolate_SRIRs(srirs_input,pos_input,resolution_new,fs,interp_modeDS,length_sampDS,fade_sampDS2ER,fade_sampER2LR,N_interp)
 % Perceptual interpolation of SRIRs
-%   srirs_input - input format [samples, sh_channels, num_measurements]
+% interpolate_SRIRs()
+% srirs_input - input format [samples, sh_channels, num_measurements]
+% 
+% The user is directed to the ICA 2022 paper for details:
+% ﻿McKenzie, T., Meyer-Kahlen, N., Daugintis, R., McCormack, L., Schlecht, S. 
+% J., & Pulkki, V. (2022). Perceptual interpolation and rendering of coupled 
+% room spatial room impulse responses. International Congress on Acoustics, 
+% Korea. 
+% 
+% Thomas McKenzie, 2022. thomas.mckenzie@aalto.fi / tom.mckenzie07@gmail.com
 
 if nargin<9; N_interp = sqrt(size(srirs_input,2))-1;    end
 if nargin<8; fade_sampER2LR = fs/100;                   end
@@ -223,7 +232,6 @@ for iInterp = 1:numInterpolatedPoints
         case 'minPhase'
             % interpolate direct sound spectrum of the nearest 4 points
             % (if 2d) or 2 points (if 1d)
-            
             nearestMeasDS = ...
                 squeeze(hAllDS(1:length_sampDS, 1, idxSorted(1:2^mode_dimension)));
             XDSnearestMeas = fft(nearestMeasDS, nfftDS);
@@ -232,8 +240,8 @@ for iInterp = 1:numInterpolatedPoints
             XDSnearestMeas_interp = XDSnearestMeas_smooth * gains;
             hMinPhase = designMinPhase(XDSnearestMeas_interp);
             
-            % encode to correct rotation. Remove the convert function
-            % if the SRIRs are in N3D normalisation
+            % encode to correct rotation. Remove the convert function if 
+            % the SRIRs are in N3D normalisation
             hDS_enc = hMinPhase(1:length_sampDS) * ...
                 convert_N3D_SN3D(evalSH(N_interp, [aziTarget, eleTarget]),'n2sn');
             
