@@ -33,8 +33,7 @@ sofa = SOFAload([irPath,irName]);
 % choose new inter-measurement distance 
 resolution_new = 5;
 
-% minPhase, rotationOnly or fixedSpectrum or meanSpectrum (direct sound
-% interpolation method)
+% minPhase or meanSpectrum direct sound interpolation method
 INTERPOLATION_MODE_DS = 'minPhase';
 
 fs = sofa.Data.SamplingRate;
@@ -48,7 +47,7 @@ positionsCorrect = round(sofa.ListenerPosition*100); % in cm not m
 % The amount to which to downsample the original measurements
 % (2 would mean using 1 of every 2, 10 means 1 in every 10,
 % 25 means 1 in every 25, so for 101 measurements it would just be using 5)
-measReduction = 10;
+measReduction = 25;
 
 % get the RIR dataset (for evaluating the method) - this would normally
 % just be: 
@@ -60,12 +59,10 @@ srirs_input = hCorrect(:,:,1:measReduction:end);
 % pos_input = round(sofa.ListenerPosition*100); 
 pos_input = positionsCorrect(1:measReduction:end,:);
 
-
 %% RUN THE FUNCTION
 [srirs_interp,pos_interp] = interpolate_SRIRs(srirs_input,pos_input,resolution_new,fs,INTERPOLATION_MODE_DS);
 
 %% evaluate
-hAllInterpolated = srirs_interp;
 run analyse_interpolate_SRIRs.m
 
 %% Save to sofa

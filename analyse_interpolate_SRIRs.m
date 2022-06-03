@@ -1,59 +1,67 @@
-% analyse interpolated IRs
+% Analyse interpolated IRs
+%
+% The user is directed to the ICA 2022 paper for details:
+% ﻿McKenzie, T., Meyer-Kahlen, N., Daugintis, R., McCormack, L., Schlecht, S. 
+% J., & Pulkki, V. (2022). Perceptual interpolation and rendering of coupled 
+% room spatial room impulse responses. International Congress on Acoustics, 
+% Korea. 
+% 
+% Thomas McKenzie, 2022. thomas.mckenzie@aalto.fi / tom.mckenzie07@gmail.com
 
-    directSoundLength_samp = 200;
-    earlyRefsCutoff_samp = 10000;
-    N_interp = 4;
+directSoundLength_samp = 200;
+earlyRefsCutoff_samp = 10000;
+N_interp = 4;
 
 figure;
 title(['RMS and DRR values. Measurement reduction = ',num2str(measReduction),'.']);
 
 
 subplot(2,4,1)
-plot(rms(abs(squeeze(hAllInterpolated(1:directSoundLength_samp,1,:)))));
+plot(rms(abs(squeeze(srirs_interp(1:directSoundLength_samp,1,:)))));
 hold on
 plot(rms(abs(squeeze(hCorrect(1:directSoundLength_samp,1,:)))));
 title('Direct sound RMS W channel')
 
 subplot(2,4,2)
-plot(rms(abs(squeeze(hAllInterpolated(directSoundLength_samp:earlyRefsCutoff_samp,1,:)))));
+plot(rms(abs(squeeze(srirs_interp(directSoundLength_samp:earlyRefsCutoff_samp,1,:)))));
 hold on
 plot(rms(abs(squeeze(hCorrect(directSoundLength_samp:earlyRefsCutoff_samp,1,:)))));
 title('Early Reflections RMS W channel')
 
 erEnd = earlyRefsCutoff_samp+directSoundLength_samp;
 subplot(2,4,3)
-plot(rms((squeeze(hAllInterpolated(erEnd:end,1,:)))));
+plot(rms((squeeze(srirs_interp(erEnd:end,1,:)))));
 hold on
 plot(rms((squeeze(hCorrect(erEnd:end,1,:)))));
 title('Late Reverb RMS W channel')
 
 subplot(2,4,4)
-plot(rms(abs(squeeze(hAllInterpolated(1:directSoundLength_samp,1,:))))./rms(abs(squeeze(hAllInterpolated(directSoundLength_samp:end,1,:)))));
+plot(rms(abs(squeeze(srirs_interp(1:directSoundLength_samp,1,:))))./rms(abs(squeeze(srirs_interp(directSoundLength_samp:end,1,:)))));
 hold on;plot(rms(abs(squeeze(hCorrect(1:directSoundLength_samp,1,:))))./rms(abs(squeeze(hCorrect(directSoundLength_samp:end,1,:)))));
 title('DRR W channel')
 
 
 subplot(2,4,5)
-plot(squeeze(mean(rms(hAllInterpolated(1:directSoundLength_samp,:,:)),2)));
+plot(squeeze(mean(rms(srirs_interp(1:directSoundLength_samp,:,:)),2)));
 hold on
 plot(squeeze(mean(rms(hCorrect(1:directSoundLength_samp,:,:)),2)));
 title('Direct sound RMS All channels')
 
 subplot(2,4,6)
-plot(squeeze(mean(rms(hAllInterpolated(directSoundLength_samp:earlyRefsCutoff_samp,:,:)),2)));
+plot(squeeze(mean(rms(srirs_interp(directSoundLength_samp:earlyRefsCutoff_samp,:,:)),2)));
 hold on
 plot(squeeze(mean(rms(hCorrect(directSoundLength_samp:earlyRefsCutoff_samp,:,:)),2)));
 title('Early Reflections RMS All channels')
 
 subplot(2,4,7)
-plot(squeeze(mean(rms(hAllInterpolated(erEnd:end,:,:)),2)));
+plot(squeeze(mean(rms(srirs_interp(erEnd:end,:,:)),2)));
 hold on
 plot(squeeze(mean(rms(hCorrect(erEnd:end,:,:)),2)));
 title('Late Reverb RMS All channels')
 
 
 subplot(2,4,8)
-plot(mean(squeeze(rms(abs(squeeze(hAllInterpolated(1:directSoundLength_samp,:,:))))./rms(abs(squeeze(hAllInterpolated(directSoundLength_samp:end,:,:)))))));
+plot(mean(squeeze(rms(abs(squeeze(srirs_interp(1:directSoundLength_samp,:,:))))./rms(abs(squeeze(srirs_interp(directSoundLength_samp:end,:,:)))))));
 hold on;plot(mean(squeeze(rms(abs(squeeze(hCorrect(1:directSoundLength_samp,:,:))))./rms(abs(squeeze(hCorrect(directSoundLength_samp:end,:,:)))))));
 title('DRR All channels')
 
@@ -75,7 +83,7 @@ set(gcf, 'Color', 'w');pbaspect([1.7 1 1]);set(gca, 'fontsize', 12);
 title(['time-domain - original']);
 
 % interpolated
-irTrunc = hAllInterpolated;
+irTrunc = srirs_interp;
 subplot(1,2,2)
 surf(X,Y,real(10*log10(abs(squeeze(irTrunc(1:plot_length_samples,channelToPlot,:))))),'EdgeColor','none');
 
@@ -145,7 +153,7 @@ doa_color(:,:,1) = interp1(cspace, c(:,1), doa_01);
 doa_color(:,:,2) = interp1(cspace, c(:,2), doa_01);
 doa_color(:,:,3) = interp1(cspace, c(:,3), doa_01);
 
-   h= figure;subplot(2,1,1)
+h= figure;subplot(2,1,1)
 for i = nSrc:-1:1
     s = scatter(-250:5:250,squeeze(doa_est(i,1,:)),25,...
         squeeze(doa_color(i,:,:)),'filled');
@@ -163,7 +171,7 @@ box on;grid on;set(gca,'FontSize',16)
 title('DoA - original');
 
 % Interpolated
-irTrunc = hAllInterpolated;
+irTrunc = srirs_interp;
 doa_est = zeros(nSrc,2,length(irTrunc(1,1,:)));
 doa_est_P = zeros(nSrc,length(irTrunc(1,1,:)));
 for i = 1:length(irTrunc(1,1,:))

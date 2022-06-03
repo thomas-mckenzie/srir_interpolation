@@ -8,6 +8,9 @@ function [srirs_interp,pos_interp] = interpolate_SRIRs(srirs_input,pos_input,res
 % J., & Pulkki, V. (2022). Perceptual interpolation and rendering of coupled 
 % room spatial room impulse responses. International Congress on Acoustics, 
 % Korea. 
+%
+% Requires Spherical Array Processing Toolbox (Politis, 2015)
+% (https://github.com/polarch/Spherical-Array-Processing)
 % 
 % Thomas McKenzie, 2022. thomas.mckenzie@aalto.fi / tom.mckenzie07@gmail.com
 
@@ -86,26 +89,19 @@ for i = 1:numMeasurements
     earlyRefsCutoff_samp(i) = ceil(ind_at_t_L/1000) * 1000; % nearest 1000 (empirically chosen)
 end
 
-%% initial DOA (used for interpolating direct sound)
+%% input SRIR DoA (for interpolating direct sound)
 
-m = SRIR_Measurement();m.setShMicArray(4, 0.032);m.fs = fs; % for eigenmike
 directSoundDirections = zeros(numMeasurements, 3);
-aziMeasuredDeg = zeros(numMeasurements, 1);
 for iMeas = 1:numMeasurements
-    m.srir = srirs_input(1:length_sampDS, :, iMeas);
-    opts.analysisMethod = 'iv';
-    a = SRIR_Analysis(m, opts);
-    a.run();
+    srir_doa = srirs_input(1:length_sampDS, 1:4, iMeas);
     
-    idxNonZero = find(sum(a.doa~=0, 2));
-    doa = mean(a.doa(idxNonZero, :));
+    % intensity vector DoA analysis
+    doa_samp = srir_doa(:, 1) .* [srir_doa(:, 4), srir_doa(:, 2), srir_doa(:, 3)];
+    idxNonZero = find(sum(doa_samp ~= 0, 2));
+    doa = mean(doa_samp(idxNonZero, :));
     doa = doa ./ vecnorm(doa, 2, 2);
     
     directSoundDirections(iMeas, :) = doa;
-    aziMeasuredDeg(iMeas) = atan2(doa(2), doa(1)) * 180 / pi;
-    if aziMeasuredDeg(iMeas)<0
-        aziMeasuredDeg(iMeas) = aziMeasuredDeg(iMeas) + 360;
-    end
 end
 
 %% cut out direct sound and make windows for early refs and late reverberation
@@ -131,12 +127,12 @@ hAllDS = zeros(size(srirs_input, 1), numAmbiChannels, numMeasurements);
 hAllDS(1:length(winDS),:,:) = srirs_input(1:length(winDS),1:numAmbiChannels,:) .* repmat(winDS,1,numAmbiChannels,numMeasurements);
 
 %% Spherical Filter Bank / Beamforming
-[~, secDirs] = getTdesign(2*N_interp+1);
+[~, secDirs] = getTdesign(2*N_interp+1); % needs spherical array processing toolbox
 secDirs = rad2deg(secDirs);
 numSecs = size(secDirs, 1);
 
-% Get beam weights. Using max energy vector weights from spherical array processing toolbox
-w_n = beamWeightsMaxEV(N_interp);
+% Get beam weights. Here using max energy vector weights, but can change
+w_n = beamWeightsMaxEV(N_interp); % needs spherical array processing toolbox
 
 w_nm = zeros(numAmbiChannels,numSecs);
 for i = 1:length(secDirs(:,1))
@@ -144,7 +140,6 @@ for i = 1:length(secDirs(:,1))
 end
 
 %% Interpolation
-
 fax = 0:fs/nfftDS:fs/2;
 hAllDS_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
 hAllER_interp = zeros(irLength_samp, numAmbiChannels, numInterpolatedPoints);
@@ -189,21 +184,7 @@ for iInterp = 1:numInterpolatedPoints
     aziDif = angdiff(azi1,azi2)*gains(2);
     eleDif = angdiff(ele1,ele2)*gains(2);
     
-    switch interp_modeDS
-        case 'rotationOnly'
-            % use the nearest direct sound spectrum
-            shRotMatrix = getSHrotMtx(rotz(aziCorrectionDeg), N_interp, 'real');
-            hAllDS_interp(:, :, iInterp) = ...
-                hAllDS(:, 1:numAmbiChannels, idxNearest) * shRotMatrix';
-            
-        case 'fixedSpectrum'
-            % omits source directivity and distance by using the same direct sound
-            % all the time
-            idxFixed  = 4; % use this measurement for the direct sound
-            shRotMatrix = getSHrotMtx(rotz(aziTarget - aziMeasuredDeg(idxFixed)), Nsh, 'real');
-            hAllDS_interp(:,:,iMeas) = ...
-                hAllDS(:, 1:numAmbiChannels, idxFixed) * shRotMatrix';
-            
+    switch interp_modeDS            
         case 'meanSpectrum'
             % avg of FFTs
             if sortedDistances(1) == 0 % if it's the point of a measurement, bypass interpolation
