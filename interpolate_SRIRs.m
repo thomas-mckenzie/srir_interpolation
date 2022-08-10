@@ -5,14 +5,14 @@ function [srirs_interp,pos_interp] = interpolate_SRIRs(srirs_input,pos_input,res
 % 
 % The user is directed to the ICA 2022 paper for details:
 % ﻿McKenzie, T., Meyer-Kahlen, N., Daugintis, R., McCormack, L., Schlecht, S. 
-% J., & Pulkki, V. (2022). Perceptual interpolation and rendering of coupled 
-% room spatial room impulse responses. International Congress on Acoustics, 
-% Korea. 
+% J., & Pulkki, V. (2022). Perceptually informed interpolation and 
+% rendering of spatial room impulse responses for room transitions. 
+% International Congress on Acoustics, South Korea. 
 %
 % Requires Spherical Array Processing Toolbox (Politis, 2015)
 % (https://github.com/polarch/Spherical-Array-Processing)
 % 
-% Thomas McKenzie, 2022. thomas.mckenzie@aalto.fi / tom.mckenzie07@gmail.com
+% Thomas McKenzie, 2022. thomas.mckenzie@ed.ac.uk / tom.mckenzie07@gmail.com
 
 if nargin<9; N_interp = sqrt(size(srirs_input,2))-1;    end
 if nargin<8; fade_sampER2LR = fs/100;                   end
