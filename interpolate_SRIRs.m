@@ -172,17 +172,20 @@ for iInterp = 1:numInterpolatedPoints
     
     %% interpolate direct sound
     % DoA interp for direct sound interpolation
-    [azi1,ele1,~] = cart2sph(directSoundDirections(idxNearest,1), ...
-        directSoundDirections(idxNearest,2), ...
-        directSoundDirections(idxNearest,3));
-    [azi2,ele2,~] = cart2sph(directSoundDirections(idxSorted(2),1), ...
-        directSoundDirections(idxSorted(2),2), ...
-        directSoundDirections(idxSorted(2),3));
-    
-    aziTarget = azi1 - angdiff(azi1,azi2)*gains(2);
-    eleTarget = ele1 - angdiff(ele1,ele2)*gains(2);
-    aziDif = angdiff(azi1,azi2)*gains(2);
-    eleDif = angdiff(ele1,ele2)*gains(2);
+    dsDir = zeros(2^mode_dimension,2); % directions of the direct sounds
+    dsDiff = zeros(2^mode_dimension,2); % differences between the direct sounds and weighted average target
+    for i = 1:2^mode_dimension
+        [dsDir(i,1),dsDir(i,2),~] = cart2sph(directSoundDirections(idxSorted(i),1), ...
+            directSoundDirections(idxSorted(i),2), ...
+            directSoundDirections(idxSorted(i),3));
+        
+        % 2*pi to wrap round circle for always +ve numbers
+        if dsDir(i,1) < 0; dsDir(i,1) = dsDir(i,1)+(2*pi); end        
+    end
+    dsTarget = gains' * dsDir; 
+    for i = 1:2^mode_dimension
+        dsDiff(i,:) = angdiff(dsTarget, dsDir(i,:));
+    end
     
     switch interp_modeDS            
         case 'meanSpectrum'
@@ -194,14 +197,16 @@ for iInterp = 1:numInterpolatedPoints
                 nearestMeasDS = ...
                     squeeze(hAllDS(1:length_sampDS, :, idxSorted(1:2^mode_dimension)));
                 
+                % encode to correct rotation. Note: remove the convert functions if SRIRs are already in N3D normalisation
+                for i = 1:2^mode_dimension % rotate each SRIR separately before sum
+                nearestMeasDS(:,:,i) = convert_N3D_SN3D(rotateHOA_N3D(convert_N3D_SN3D(...
+                    nearestMeasDS(:,:,i),'sn2n'),rad2deg(dsDiff(i,1)),rad2deg(dsDiff(i,2)),0),'n2sn');
+                end
+                
                 XDSnearestMeas = fft(nearestMeasDS);
                 XDSnearestMeas_gain = XDSnearestMeas .* gainsSH;
                 XDSnearestMeas_interp = sum(XDSnearestMeas_gain,3);
-                
-                hDS_interp = real(ifft(XDSnearestMeas_interp));
-                % encode to correct rotation. Remove the convert function
-                % if the SRIRs are already in N3D normalisation
-                hDS_enc = convert_N3D_SN3D(rotateHOA_N3D(convert_N3D_SN3D(hDS_interp,'sn2n'),aziDif,eleDif,0),'n2sn');
+                hDS_enc = real(ifft(XDSnearestMeas_interp));
                 
                 % normalise RMS of direct sound
                 rmsNormValue = sum(rms(squeeze(nearestMeasDS(:,1,:))) * gains);
@@ -224,7 +229,7 @@ for iInterp = 1:numInterpolatedPoints
             % encode to correct rotation. Remove the convert function if 
             % the SRIRs are in N3D normalisation
             hDS_enc = hMinPhase(1:length_sampDS) * ...
-                convert_N3D_SN3D(evalSH(N_interp, [aziTarget, eleTarget]),'n2sn');
+                convert_N3D_SN3D(evalSH(N_interp, dsTarget),'n2sn');
             
             % normalise RMS of direct sound
             rmsNormValue = sum(rms(squeeze(nearestMeasDS(:,1,:))) * gains);
