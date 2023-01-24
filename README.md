@@ -1,4 +1,4 @@
-# srir_interpolation
+# Interpolation of Spatial Room Impulse Responses for Room Transitions
 
 This repository contains MATLAB functions to interpolate between spatial room impulse responses at different receiver positions, suitable for room transitions and other non-simple recording setups. 
 Please [refer to the publication](https://www.researchgate.net/publication/364829625_Perceptually_informed_interpolation_and_rendering_of_spatial_room_impulse_responses_for_room_transitions) for more information:
