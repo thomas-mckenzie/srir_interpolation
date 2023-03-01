@@ -120,7 +120,7 @@ for i = 1:length(irTrunc(1,1,:))
     sphCOV = stVec*P_src*stVec' + 1*eye((order+1)^2)/(4*pi);
     
     % DoA estimation
-    [~, est_dirs_pwd,est_dirs_P] = sphPWDmap(sphCOV, grid_dirs, nSrc,kappa);
+    [~, est_dirs_pwd,est_dirs_P] = sphPWDmap(sphCOV, grid_dirs, nSrc);
     
     % convert to degs from rads
     est_dirs_pwd = est_dirs_pwd*180/pi;
@@ -181,7 +181,7 @@ for i = 1:length(irTrunc(1,1,:))
     sphCOV = stVec*P_src*stVec' + 1*eye((order+1)^2)/(4*pi);
     
     % DoA estimation
-    [~, est_dirs_pwd,est_dirs_P] = sphPWDmap(sphCOV, grid_dirs, nSrc,kappa);
+    [~, est_dirs_pwd,est_dirs_P] = sphPWDmap(sphCOV, grid_dirs, nSrc);
     
     % convert to degs from rads
     est_dirs_pwd = est_dirs_pwd*180/pi;
