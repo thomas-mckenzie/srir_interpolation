@@ -70,14 +70,14 @@ pos_input = [source1_position(1,:);source2_position(1,:)]; % assuming source pos
 
 %% Evaluate 
 methodType = 'Basic';
-run analyse_interpolate_SRIRs_source_AES.m
+run analyse_interpolate_SRIRs_source.m
 
 %% RUN THE FUNCTION -- PROPOSED
 [srirs_interp,pos_interp,dir_interp_src] = interpolate_SRIRs_source(srirs_input,pos_input,division,fs);
 
 %% Evaluate 
 methodType = 'Proposed';
-run analyse_interpolate_SRIRs_source_AES.m
+run analyse_interpolate_SRIRs_source.m
 
 %% Save to sofa
 
