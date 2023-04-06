@@ -121,3 +121,55 @@ end
 
 xlim([1 7.87]);ylim([1 5]);zlim([1 2]);view([0 90]);box on;
 title(['Direct sound DoA: ', methodType, ' interpolation method'])
+
+%% Plot Horizontal DoA
+
+irTrunc = squeeze(srirs_interp(:,:,1,:)); % first receiver
+for i = 1:size(irTrunc,3) % rotate by -90 degrees (compatibility requirement)
+irTrunc(:,:,i) = rotateHOA_N3D(irTrunc(:,:,i),-90,0,0);
+end
+
+degreeResolution = 5;
+nSrc = 7;
+numSamps = fs*0.3; % 0.3 seconds
+highPassFilterFreq = 3000;
+kappa = 40;
+plot_thresh = -10;
+
+grid_dirs = grid2dirs(degreeResolution,90,0,0); % Grid of directions to evaluate DoA estimation
+P_src = diag(ones(numSamps,1));
+[~,filtHi,~] = ambisonic_crossover(highPassFilterFreq,fs);
+
+doa_est = zeros(nSrc,2,length(irTrunc(1,1,:)));
+doa_est_P = zeros(nSrc,length(irTrunc(1,1,:)));
+P_pwd = zeros(size(grid_dirs,1),length(irTrunc(1,1,:)));
+for i = 1:length(irTrunc(1,1,:))
+    Y_src = filter(filtHi,1,irTrunc(1:numSamps,:,i)); % high pass filter
+    stVec = Y_src';
+    sphCOV = stVec*P_src*stVec' + 1*eye((4+1)^2)/(4*pi);
+    
+    % DoA estimation
+    [P_pwd(2:end-1,i), est_dirs_pwd,est_dirs_P] = sphPWDmap(sphCOV, grid_dirs(2:end-1,:), nSrc,kappa);
+end
+normalized_doa_est_P = P_pwd./ max(P_pwd,[],1);
+normalized_doa_est_P_dB = mag2db(normalized_doa_est_P)/2;
+normalized_doa_est_P_dB( normalized_doa_est_P_dB < plot_thresh ) = plot_thresh;
+P_pwd_n = rescale(normalized_doa_est_P_dB, 'InputMin',plot_thresh);
+
+figure;
+x = 1:length(irTrunc(1,1,:));
+y = -180:degreeResolution:180-degreeResolution;
+[X,Y] = meshgrid(x,y);
+Z = griddata(x,y,P_pwd_n(2:end-1,:),X,Y,'cubic');
+
+surf(X,Y,Z,'EdgeColor','none'); 
+
+ylabel('Azimuth (°)'); xlabel('RIR number');
+shading interp; view ([0 90]); axis tight;
+colormap(flipud(bone));
+set(gca, 'YTick',  -150:75:150); ylim([-180 180]);
+pbaspect([1.7 1 1]); box on;
+
+c2 = colorbar; c2.Label.String = 'Normalised Power';
+title(['Normalised power response, receiver 1: ', methodType, ' method'])
+

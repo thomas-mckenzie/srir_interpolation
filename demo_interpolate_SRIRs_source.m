@@ -27,7 +27,7 @@ sofa1 = SOFAload([irPath1,irName1]);
 fs = sofa1.Data.SamplingRate;
 SOFAplotGeometry(sofa1);
 
-%% Interpolate source position through whole of the dataset (different receiver positions)
+%% Configure interpolation
 
 division = 5; % divide into x amount of sections (ie 2: one new srir in the middle, 3: 2 new srirs, 4: 3 new srirs, 10: 9 new srirs)
 
