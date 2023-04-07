@@ -8,7 +8,7 @@
 % Thomas McKenzie, University of Edinburgh, 2023. thomas.mckenzie@ed.ac.uk
 
 
-%% Time-domain plot
+%% RMS plot
 t_interp = 1:size(srirs_interp,3);
 figure;
 plot(t_interp,db(rms((squeeze(srirs_interp(:,1,:,1))))),'LineWidth',2,'Marker','^','MarkerSize',10,'LineStyle','none');
@@ -25,7 +25,7 @@ pbaspect([2.2 1 1])
 ylim([-49 -38]);box on
 title(['RMS W channel: ', methodType, ' interpolation method'])
 
-%% Frequency-domain response
+%% Frequency-domain plot
 irToPlot = 1; channelToPlot = 1;
 figure;
 freqplot_smooth(srirs_interp(:,channelToPlot,irToPlot,1),fs,2,'-', 2);
