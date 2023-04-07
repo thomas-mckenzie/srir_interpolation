@@ -7,10 +7,10 @@ Please [refer to the publication](https://www.researchgate.net/publication/36482
 T. McKenzie, N. Meyer-Kahlen, R. Daugintis, L. McCormack, S. J. Schlecht, and V. Pulkki: "Perceptually informed interpolation and  
 rendering of spatial room impulse responses for room transitions." International Congress on Acoustics, Gyeongju, pp. 1-11. 2022.
    ```
-      ```
+```
 T. McKenzie, N. Meyer-Kahlen, C. Hold, S. J. Schlecht, and V. Pulkki: "Auralisation of measured room transitions in virtual
 reality." Journal of the Audio Engineering Society, doi: 10.17743/jaes.2022.0084, 2023.
-   ```
+```
    
 Two demo scripts 'demo_interpolate_SRIRs_function' are included: one for 1D (ie along a line) measurements for the transition between two coupled rooms, and one for 2D measurements inside a single room. The script also includes an example of formatting for saving a sofa file of the resulting SRIRs. 
 
